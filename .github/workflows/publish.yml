@@ -1,11 +1,33 @@
 name: Publish to PyPI
 
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - master
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      is_new: ${{ steps.check.outputs.is_new }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if version is new on PyPI
+        id: check
+        run: |
+          VERSION=$(grep '^version' pyproject.toml | sed 's/.*= *"\(.*\)"/\1/')
+          NAME=$(grep '^name' pyproject.toml | sed 's/.*= *"\(.*\)"/\1/')
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/${NAME}/${VERSION}/json")
+          if [ "$STATUS" = "404" ]; then
+            echo "is_new=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_new=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: check-version
+    if: needs.check-version.outputs.is_new == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
