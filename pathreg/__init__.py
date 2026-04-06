@@ -24,6 +24,7 @@ if _WINDOWS:
             winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
         ) as k:
             winreg.SetValueEx(k, "Path", 0, winreg.REG_EXPAND_SZ, value)
+
         ctypes.windll.user32.SendMessageTimeoutW(
             0xFFFF, 0x1A, 0, "Environment", 2, 5000, None
         )
@@ -117,7 +118,21 @@ def list_paths() -> list[Path]:
     """Return the current PATH entries as a list of Path objects."""
     raw = os.environ.get("PATH", "")
     sep = ";" if _WINDOWS else ":"
+
     return [Path(p) for p in raw.split(sep) if p]
+
+
+def in_path(directory: str) -> bool:
+    """Return True if *directory* is present in PATH."""
+    sep = ";" if _WINDOWS else ":"
+    suffix = "\\" if _WINDOWS else "/"
+    target = directory.strip().removesuffix(suffix)
+
+    return any(
+        p.removesuffix(suffix) == target
+        for p in os.environ.get("PATH", "").split(sep)
+        if p
+    )
 
 
 def main():
@@ -127,6 +142,7 @@ def main():
     for name, help_text in (
         ("add", "Add a directory to PATH"),
         ("remove", "Remove a directory from PATH"),
+        ("check", "Check if a directory is in PATH"),
     ):
         sub.add_parser(name, help=help_text).add_argument("directory")
 
@@ -137,6 +153,10 @@ def main():
     if args.command == "list":
         for path in list_paths():
             print(path)
+        return
+
+    if args.command == "check":
+        print("yes" if in_path(args.directory) else "no")
         return
 
     actions = {"add": (add_path, "Added"), "remove": (remove_path, "Removed")}

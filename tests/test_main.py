@@ -131,6 +131,31 @@ class TestDunderMain:
         assert exc_info.value.code == 0
 
 
+class TestCheckCommand:
+    def test_prints_yes_when_present(self):
+        with (
+            patch("sys.argv", ["pathreg", "check", "/some/dir"]),
+            patch.dict(os.environ, {"PATH": "/some/dir:/usr/bin"}),
+            patch("builtins.print") as mock_print,
+        ):
+            main()
+            mock_print.assert_called_once_with("yes")
+
+    def test_prints_no_when_absent(self):
+        with (
+            patch("sys.argv", ["pathreg", "check", "/some/dir"]),
+            patch.dict(os.environ, {"PATH": "/usr/bin"}),
+            patch("builtins.print") as mock_print,
+        ):
+            main()
+            mock_print.assert_called_once_with("no")
+
+    def test_check_without_directory_exits(self):
+        with patch("sys.argv", ["pathreg", "check"]):
+            with pytest.raises(SystemExit):
+                main()
+
+
 class TestAliases:
     def test_add_path_is_unix_on_non_windows(self):
         if sys.platform not in ("win32", "cygwin"):
