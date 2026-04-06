@@ -13,18 +13,20 @@ pip install pathreg
 ```sh
 pathreg add /some/directory
 pathreg remove /some/directory
+pathreg list
 ```
 
 ## Python API
 
 ```python
-from pathreg import add_path, remove_path
+from pathreg import add_path, remove_path, list_paths
 
 add_path("/some/directory")     # idempotent — skips if already present
 remove_path("/some/directory")  # no-op if not found
+list_paths()                    # returns list[Path] of current PATH entries
 ```
 
-Both functions modify the shell profile **and** the current process's `PATH` immediately.
+`add_path` and `remove_path` modify the shell profile **and** the current process's `PATH` immediately.
 
 ## Behavior
 

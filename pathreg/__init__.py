@@ -113,6 +113,13 @@ remove_path: Callable[[str], None] = (
 """Remove *directory* from PATH persistently and in the current process."""
 
 
+def list_paths() -> list[Path]:
+    """Return the current PATH entries as a list of Path objects."""
+    raw = os.environ.get("PATH", "")
+    sep = ";" if _WINDOWS else ":"
+    return [Path(p) for p in raw.split(sep) if p]
+
+
 def main():
     parser = argparse.ArgumentParser(prog="pathreg", description="Manage PATH entries.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -123,7 +130,14 @@ def main():
     ):
         sub.add_parser(name, help=help_text).add_argument("directory")
 
+    sub.add_parser("list", help="List all PATH entries")
+
     args = parser.parse_args()
+
+    if args.command == "list":
+        for path in list_paths():
+            print(path)
+        return
 
     actions = {"add": (add_path, "Added"), "remove": (remove_path, "Removed")}
     action, verb = actions[args.command]
