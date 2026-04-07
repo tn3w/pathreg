@@ -135,6 +135,21 @@ def in_path(directory: str) -> bool:
     )
 
 
+def find_executable(name: str) -> Path | None:
+    """Return the first Path in PATH where *name* is an executable file, or None."""
+    sep = ";" if _WINDOWS else ":"
+    suffix = "\\" if _WINDOWS else "/"
+
+    for part in os.environ.get("PATH", "").split(sep):
+        if not part:
+            continue
+        candidate = Path(part.removesuffix(suffix)) / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
+
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(prog="pathreg", description="Manage PATH entries.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -143,8 +158,11 @@ def main():
         ("add", "Add a directory to PATH"),
         ("remove", "Remove a directory from PATH"),
         ("check", "Check if a directory is in PATH"),
+        ("find", "Find the first executable by name in PATH"),
     ):
-        sub.add_parser(name, help=help_text).add_argument("directory")
+        sub.add_parser(name, help=help_text).add_argument(
+            "directory" if name != "find" else "name"
+        )
 
     sub.add_parser("list", help="List all PATH entries")
 
@@ -157,6 +175,11 @@ def main():
 
     if args.command == "check":
         print("yes" if in_path(args.directory) else "no")
+        return
+
+    if args.command == "find":
+        result = find_executable(args.name)
+        print(result if result else "not found")
         return
 
     actions = {"add": (add_path, "Added"), "remove": (remove_path, "Removed")}

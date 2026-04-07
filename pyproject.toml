@@ -1,6 +1,6 @@
 [project]
 name = "pathreg"
-version = "1.0.2"
+version = "1.0.3"
 description = "A lightweight Python library to persistently add or remove directories from PATH."
 readme = "README.md"
 authors = [

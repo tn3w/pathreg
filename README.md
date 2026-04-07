@@ -15,17 +15,19 @@ pathreg add /some/directory
 pathreg remove /some/directory
 pathreg list
 pathreg check /some/directory   # prints "yes" or "no"
+pathreg find python             # prints full path or "not found"
 ```
 
 ## Python API
 
 ```python
-from pathreg import add_path, remove_path, list_paths, in_path
+from pathreg import add_path, remove_path, list_paths, in_path, find_executable
 
-add_path("/some/directory")     # idempotent, skips if already present
-remove_path("/some/directory")  # no-op if not found
-list_paths()                    # returns list[Path] of current PATH entries
-in_path("/some/directory")      # returns True if directory is in PATH
+add_path("/some/directory")       # idempotent, skips if already present
+remove_path("/some/directory")    # no-op if not found
+list_paths()                      # returns list[Path] of current PATH entries
+in_path("/some/directory")        # returns True if directory is in PATH
+find_executable("python")         # returns Path to first match, or None
 ```
 
 `add_path` and `remove_path` modify the shell profile **and** the current process's `PATH` immediately.
@@ -37,6 +39,7 @@ in_path("/some/directory")      # returns True if directory is in PATH
 - `remove_path` is a no-op if the entry is absent or the profile file does not exist.
 - `list_paths` reflects the current process `PATH`; it does not read the profile file.
 - `in_path` normalizes trailing separators before comparing, matching `add_path` behaviour.
+- `find_executable` walks PATH entries in order and returns the first regular file that is executable, or `None`.
 
 ## Platform support
 
