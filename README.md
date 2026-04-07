@@ -41,13 +41,25 @@ pathreg list --filter startswith --filter-arg /usr
 pathreg count                           # prints number of PATH entries
 pathreg check /some/directory           # prints "yes" or "no"
 pathreg find python                     # prints full path or "not found"
+pathreg find-all python                 # prints all matches (shadows included), or "not found"
 pathreg clean                           # removes duplicates and non-existent entries
+pathreg duplicates                      # list entries that appear more than once
+pathreg swap /a /b                      # swap positions of two entries
+pathreg rename /old /new                # replace an entry in-place, keeping its position
+pathreg save /path/to/file.txt          # write current PATH entries to a file, one per line
+pathreg load /path/to/file.txt          # add entries from a file
 ```
 
 ## Python API
 
 ```python
-from pathreg import add_path, prepend_path, remove_path, move_path, set_path, list_paths, path_len, in_path, find_executable, clean_path
+from pathreg import (
+    add_path, prepend_path, remove_path, move_path, set_path,
+    list_paths, path_len, in_path, find_executable, find_all_executables,
+    clean_path, diff_paths, duplicate_paths, swap_paths, rename_path,
+    snapshot_path, restore_path, save_path_to_file, load_path_from_file,
+    path_context,
+)
 from pathreg import filters
 
 add_path("/some/directory")          # append (default); idempotent
@@ -62,7 +74,19 @@ list_paths(filters.contains("usr"))  # factory filters return a predicate
 path_len()                           # returns number of PATH entries (faster than len(list_paths()))
 in_path("/some/directory")           # returns True if directory is in PATH
 find_executable("python")            # returns Path to first match, or None
+find_all_executables("python")       # returns list[Path] of all matches (useful for spotting shadows)
 clean_path()                         # removes duplicates and non-existent dirs, returns cleaned list[Path]
+diff_paths(before, after)            # returns {"added": [...], "removed": [...]} comparing two PATH lists
+duplicate_paths()                    # returns entries that appear more than once (does not modify PATH)
+swap_paths("/a", "/b")               # swap positions of two entries in the current process
+rename_path("/old", "/new")          # replace an entry in-place, keeping its position
+snapshot_path()                      # returns current PATH as list[str] for later restoration
+restore_path(snapshot)               # restores PATH from a snapshot_path() result
+save_path_to_file("/path/file.txt")  # writes current PATH entries to a file, one per line
+load_path_from_file("/path/file.txt") # adds entries from a file (idempotent)
+
+with path_context("/tmp/mybin", "/opt/extra"):
+    ...  # directories are in PATH here; PATH restored on exit (even on exception)
 ```
 
 `add_path`, `remove_path`, `move_path`, and `set_path` modify the shell profile **and** the current process's `PATH` immediately (`move_path` only updates the current process).
@@ -81,6 +105,14 @@ clean_path()                         # removes duplicates and non-existent dirs,
 - `in_path` normalizes trailing separators before comparing, matching `add_path` behaviour.
 - `find_executable` walks PATH entries in order and returns the first regular file that is executable, or `None`.
 - `clean_path` removes non-existent directories and duplicates (resolved via symlinks) from the current process PATH in-place, and returns the cleaned list.
+- `find_all_executables` walks all PATH entries and returns every match, not just the first — useful for detecting shadowed binaries.
+- `diff_paths(before, after)` compares two `list[Path]` values and returns `{"added": [...], "removed": [...]}` — useful for debugging shell startup changes.
+- `duplicate_paths` returns entries that appear more than once (resolved via symlinks) without modifying PATH.
+- `swap_paths(a, b)` swaps the positions of two entries in the current process PATH; no-op if either is absent.
+- `rename_path(old, new)` replaces _old_ with _new_ at the same position; no-op if absent.
+- `snapshot_path` / `restore_path` save and restore PATH as a plain `list[str]` — useful in scripts and tests.
+- `save_path_to_file` / `load_path_from_file` write/read PATH entries one per line.
+- `path_context(*directories)` is a context manager that adds directories for the duration of a `with` block then restores PATH — works correctly even when exceptions are raised.
 
 ## Platform support
 

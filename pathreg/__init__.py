@@ -264,6 +264,142 @@ def find_executable(name: str) -> Path | None:
     return None
 
 
+def find_all_executables(name: str) -> list[Path]:
+    """Return all paths in PATH where *name* is an executable file (shadows included)."""
+    sep = ";" if _WINDOWS else ":"
+    suffix = "\\" if _WINDOWS else "/"
+
+    results = []
+    for part in os.environ.get("PATH", "").split(sep):
+        if not part:
+            continue
+        candidate = Path(part.removesuffix(suffix)) / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            results.append(candidate)
+
+    return results
+
+
+def diff_paths(before: list[Path], after: list[Path]) -> dict[str, list[Path]]:
+    """Compare two PATH lists; return {"added": [...], "removed": [...]}."""
+    before_set = set(before)
+    after_set = set(after)
+    return {
+        "added": [p for p in after if p not in before_set],
+        "removed": [p for p in before if p not in after_set],
+    }
+
+
+def duplicate_paths() -> list[Path]:
+    """Return PATH entries that appear more than once (resolved duplicates)."""
+    sep = ";" if _WINDOWS else ":"
+    parts = [Path(p) for p in os.environ.get("PATH", "").split(sep) if p]
+
+    seen: set[str] = set()
+    duplicates: list[Path] = []
+
+    for p in parts:
+        resolved = str(p.resolve())
+        if resolved in seen:
+            duplicates.append(p)
+        else:
+            seen.add(resolved)
+
+    return duplicates
+
+
+def swap_paths(directory_a: str, directory_b: str) -> None:
+    """Swap the positions of two PATH entries in the current process."""
+    sep = ";" if _WINDOWS else ":"
+    suffix = "\\" if _WINDOWS else "/"
+
+    a = directory_a.strip().removesuffix(suffix)
+    b = directory_b.strip().removesuffix(suffix)
+
+    parts = [p for p in os.environ.get("PATH", "").split(sep) if p]
+    normalized = [p.removesuffix(suffix) for p in parts]
+
+    if a not in normalized or b not in normalized:
+        return
+
+    idx_a, idx_b = normalized.index(a), normalized.index(b)
+    parts[idx_a], parts[idx_b] = parts[idx_b], parts[idx_a]
+    os.environ["PATH"] = sep.join(parts)
+
+
+def rename_path(old: str, new: str) -> None:
+    """Replace *old* with *new* in PATH, preserving its position. No-op if absent."""
+    sep = ";" if _WINDOWS else ":"
+    suffix = "\\" if _WINDOWS else "/"
+
+    target = old.strip().removesuffix(suffix)
+    replacement = new.strip().removesuffix(suffix)
+
+    parts = [p for p in os.environ.get("PATH", "").split(sep) if p]
+    normalized = [p.removesuffix(suffix) for p in parts]
+
+    if target not in normalized:
+        return
+
+    idx = normalized.index(target)
+    parts[idx] = replacement
+    os.environ["PATH"] = sep.join(parts)
+
+
+def snapshot_path() -> list[str]:
+    """Return the current PATH as a list of strings for later restoration."""
+    sep = ";" if _WINDOWS else ":"
+    return [p for p in os.environ.get("PATH", "").split(sep) if p]
+
+
+def restore_path(snapshot: list[str]) -> None:
+    """Restore PATH from a snapshot produced by *snapshot_path*."""
+    sep = ";" if _WINDOWS else ":"
+    os.environ["PATH"] = sep.join(snapshot)
+
+
+def save_path_to_file(file: str | Path) -> None:
+    """Write current PATH entries to *file*, one per line."""
+    sep = ";" if _WINDOWS else ":"
+    entries = [p for p in os.environ.get("PATH", "").split(sep) if p]
+    Path(file).write_text("\n".join(entries) + "\n")
+
+
+def load_path_from_file(file: str | Path) -> None:
+    """Add each line in *file* as a PATH entry (appended, idempotent)."""
+    for line in Path(file).read_text().splitlines():
+        line = line.strip()
+        if line:
+            add_path(line)
+
+
+class path_context:  # noqa: N801
+    """Context manager that temporarily adds *directories* to PATH.
+
+    On exit the original PATH is restored, even if an exception occurs.
+
+    Usage::
+
+        with path_context("/tmp/mybin", "/opt/extra/bin"):
+            ...  # directories are in PATH here
+        # PATH is restored here
+    """
+
+    def __init__(self, *directories: str) -> None:
+        self._directories = directories
+        self._snapshot: list[str] = []
+
+    def __enter__(self):
+        self._snapshot = snapshot_path()
+        for directory in self._directories:
+            add_path(directory)
+        return self
+
+    def __exit__(self, *_):
+        restore_path(self._snapshot)
+        return False
+
+
 def _resolve_filter(args, parser):
     from pathreg import filters as f
 
@@ -363,8 +499,29 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("count", help="Print the number of PATH entries")
     sub.add_parser("clean", help="Remove duplicates and non-existent dirs from PATH")
+    sub.add_parser("duplicates", help="List entries that appear more than once")
+
     set_sub = sub.add_parser("set", help="Replace PATH with given directories")
     set_sub.add_argument("directories", nargs="+", metavar="directory")
+
+    find_all_sub = sub.add_parser(
+        "find-all", help="Find all executables by name in PATH"
+    )
+    find_all_sub.add_argument("name")
+
+    swap_sub = sub.add_parser("swap", help="Swap positions of two PATH entries")
+    swap_sub.add_argument("directory_a")
+    swap_sub.add_argument("directory_b")
+
+    rename_sub = sub.add_parser("rename", help="Replace a PATH entry in-place")
+    rename_sub.add_argument("old")
+    rename_sub.add_argument("new")
+
+    save_sub = sub.add_parser("save", help="Write PATH entries to a file")
+    save_sub.add_argument("file")
+
+    load_sub = sub.add_parser("load", help="Add PATH entries from a file")
+    load_sub.add_argument("file")
 
     return parser
 
@@ -412,6 +569,39 @@ def _dispatch(args, parser) -> None:
     if args.command == "move":
         move_path(args.directory, args.index)
         print(f"Moved {args.directory!r} to index {args.index}")
+        return
+
+    if args.command == "find-all":
+        results = find_all_executables(args.name)
+        for path in results:
+            print(path)
+        if not results:
+            print("not found")
+        return
+
+    if args.command == "duplicates":
+        for path in duplicate_paths():
+            print(path)
+        return
+
+    if args.command == "swap":
+        swap_paths(args.directory_a, args.directory_b)
+        print(f"Swapped {args.directory_a!r} and {args.directory_b!r}")
+        return
+
+    if args.command == "rename":
+        rename_path(args.old, args.new)
+        print(f"Renamed {args.old!r} to {args.new!r}")
+        return
+
+    if args.command == "save":
+        save_path_to_file(args.file)
+        print(f"Saved PATH to {args.file!r}")
+        return
+
+    if args.command == "load":
+        load_path_from_file(args.file)
+        print(f"Loaded PATH entries from {args.file!r}")
         return
 
     remove_path(args.directory)

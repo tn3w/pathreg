@@ -156,6 +156,81 @@ class TestCheckCommand:
                 main()
 
 
+class TestNewCommands:
+    def test_find_all_prints_matches(self, tmp_path):
+        import stat
+
+        exe = tmp_path / "mytool"
+        exe.write_text("#!/bin/sh\n")
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+        with (
+            patch("sys.argv", ["pathreg", "find-all", "mytool"]),
+            patch.dict(os.environ, {"PATH": str(tmp_path)}),
+            patch("builtins.print") as mock_print,
+        ):
+            main()
+        mock_print.assert_called_once_with(tmp_path / "mytool")
+
+    def test_find_all_prints_not_found(self, tmp_path):
+        with (
+            patch("sys.argv", ["pathreg", "find-all", "no_such_bin"]),
+            patch.dict(os.environ, {"PATH": str(tmp_path)}),
+            patch("builtins.print") as mock_print,
+        ):
+            main()
+        mock_print.assert_called_once_with("not found")
+
+    def test_duplicates_prints_duplicates(self):
+        with (
+            patch("sys.argv", ["pathreg", "duplicates"]),
+            patch.dict(os.environ, {"PATH": "/a:/b:/a"}),
+            patch("builtins.print") as mock_print,
+        ):
+            main()
+        from pathlib import Path
+
+        mock_print.assert_called_once_with(Path("/a"))
+
+    def test_swap_prints_confirmation(self):
+        with (
+            patch("sys.argv", ["pathreg", "swap", "/a", "/b"]),
+            patch.dict(os.environ, {"PATH": "/a:/b"}),
+            patch("builtins.print") as mock_print,
+        ):
+            main()
+        mock_print.assert_called_once_with("Swapped '/a' and '/b'")
+
+    def test_rename_prints_confirmation(self):
+        with (
+            patch("sys.argv", ["pathreg", "rename", "/a", "/z"]),
+            patch.dict(os.environ, {"PATH": "/a:/b"}),
+            patch("builtins.print") as mock_print,
+        ):
+            main()
+        mock_print.assert_called_once_with("Renamed '/a' to '/z'")
+
+    def test_save_prints_confirmation(self, tmp_path):
+        file = str(tmp_path / "paths.txt")
+        with (
+            patch("sys.argv", ["pathreg", "save", file]),
+            patch.dict(os.environ, {"PATH": "/a:/b"}),
+            patch("builtins.print") as mock_print,
+        ):
+            main()
+        assert f"Saved PATH to {file!r}" == mock_print.call_args[0][0]
+
+    def test_load_prints_confirmation(self, tmp_path, sh_profile):
+        file = tmp_path / "paths.txt"
+        file.write_text("/a\n")
+        with (
+            patch("sys.argv", ["pathreg", "load", str(file)]),
+            patch.dict(os.environ, {"PATH": ""}),
+            patch("builtins.print") as mock_print,
+        ):
+            main()
+        assert f"Loaded PATH entries from {str(file)!r}" == mock_print.call_args[0][0]
+
+
 class TestAliases:
     def test_add_path_is_unix_on_non_windows(self):
         if sys.platform not in ("win32", "cygwin"):
