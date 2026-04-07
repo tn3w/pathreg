@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -105,6 +106,25 @@ def _remove_path_unix(directory: str) -> None:
     )
 
 
+def _set_path_windows(directories: list[str]) -> None:
+    """Replace the user PATH in the Windows registry with *directories*."""
+    normalized = [d.strip().replace("/", "\\").removesuffix("\\") for d in directories]
+    _reg_set(os.pathsep.join(normalized))
+    os.environ["PATH"] = os.pathsep.join(normalized)
+
+
+def _set_path_unix(directories: list[str]) -> None:
+    """Replace all PATH entries in the shell profile with *directories*."""
+    normalized = [d.strip().replace("\\", "/").removesuffix("/") for d in directories]
+
+    profile = _profile(_shell())
+    text = profile.read_text() if profile.exists() else ""
+
+    text = re.sub(r'(?:export )?PATH="[^"]*:\$PATH"\n', "", text)
+    profile.write_text(text + "".join(_entry(d) for d in normalized))
+    os.environ["PATH"] = ":".join(normalized)
+
+
 add_path: Callable[[str], None] = _add_path_windows if _WINDOWS else _add_path_unix
 """Add *directory* to PATH persistently and in the current process. Idempotent."""
 
@@ -112,6 +132,11 @@ remove_path: Callable[[str], None] = (
     _remove_path_windows if _WINDOWS else _remove_path_unix
 )
 """Remove *directory* from PATH persistently and in the current process."""
+
+set_path: Callable[[list[str]], None] = (
+    _set_path_windows if _WINDOWS else _set_path_unix
+)
+"""Replace PATH with *directories* persistently and in the current process."""
 
 
 def list_paths() -> list[Path]:
@@ -190,6 +215,8 @@ def main():
 
     sub.add_parser("list", help="List all PATH entries")
     sub.add_parser("clean", help="Remove duplicates and non-existent dirs from PATH")
+    set_sub = sub.add_parser("set", help="Replace PATH with given directories")
+    set_sub.add_argument("directories", nargs="+", metavar="directory")
 
     args = parser.parse_args()
 
@@ -201,6 +228,11 @@ def main():
     if args.command == "clean":
         for path in clean_path():
             print(path)
+        return
+
+    if args.command == "set":
+        set_path(args.directories)
+        print("Path set to: " + os.pathsep.join(args.directories))
         return
 
     if args.command == "check":

@@ -13,6 +13,7 @@ pip install pathreg
 ```sh
 pathreg add /some/directory
 pathreg remove /some/directory
+pathreg set /a /b /c            # replace PATH with given directories
 pathreg list
 pathreg check /some/directory   # prints "yes" or "no"
 pathreg find python             # prints full path or "not found"
@@ -26,6 +27,7 @@ from pathreg import add_path, remove_path, list_paths, in_path, find_executable,
 
 add_path("/some/directory")       # idempotent, skips if already present
 remove_path("/some/directory")    # no-op if not found
+set_path(["/a", "/b", "/c"])      # replace PATH entirely with given list
 list_paths()                      # returns list[Path] of current PATH entries
 in_path("/some/directory")        # returns True if directory is in PATH
 find_executable("python")         # returns Path to first match, or None

@@ -30,7 +30,7 @@ def reg_patches(reg_path_value):
 class TestAddPathWindows:
     def test_adds_new_dir_to_environ(self):
         existing = WIN_SEP.join([r"C:\Windows\System32"])
-        reg_path, reg_set, patches = reg_patches(existing)
+        _, _, patches = reg_patches(existing)
         with patches[0], patches[1], patches[2]:
             with patch.dict(os.environ, {"PATH": existing}):
                 pathreg._add_path_windows(r"C:\new\bin")
@@ -38,7 +38,7 @@ class TestAddPathWindows:
 
     def test_calls_reg_set_with_new_entry_prepended(self):
         existing = r"C:\Windows\System32"
-        reg_path, reg_set, patches = reg_patches(existing)
+        _, reg_set, patches = reg_patches(existing)
         with patches[0], patches[1], patches[2]:
             with patch.dict(os.environ, {"PATH": existing}):
                 pathreg._add_path_windows(r"C:\new\bin")
@@ -48,7 +48,7 @@ class TestAddPathWindows:
 
     def test_does_not_duplicate_existing_entry(self):
         existing = WIN_SEP.join([r"C:\new\bin", r"C:\Windows\System32"])
-        reg_path, reg_set, patches = reg_patches(existing)
+        _, reg_set, patches = reg_patches(existing)
         with patches[0], patches[1], patches[2]:
             with patch.dict(os.environ, {"PATH": existing}):
                 pathreg._add_path_windows(r"C:\new\bin")
@@ -56,7 +56,7 @@ class TestAddPathWindows:
 
     def test_converts_forward_slashes(self):
         existing = r"C:\Windows\System32"
-        reg_path, reg_set, patches = reg_patches(existing)
+        _, _, patches = reg_patches(existing)
         with patches[0], patches[1], patches[2]:
             with patch.dict(os.environ, {"PATH": existing}):
                 pathreg._add_path_windows("C:/new/bin")
@@ -64,7 +64,7 @@ class TestAddPathWindows:
 
     def test_strips_trailing_backslash(self):
         existing = r"C:\Windows\System32"
-        reg_path, reg_set, patches = reg_patches(existing)
+        _, _, patches = reg_patches(existing)
         with patches[0], patches[1], patches[2]:
             with patch.dict(os.environ, {"PATH": existing}):
                 pathreg._add_path_windows(r"C:\new\bin\ ".strip())
@@ -72,7 +72,7 @@ class TestAddPathWindows:
 
     def test_recognises_existing_entry_with_trailing_backslash(self):
         existing = WIN_SEP.join([r"C:\new\bin" + "\\", r"C:\Windows\System32"])
-        reg_path, reg_set, patches = reg_patches(existing)
+        _, reg_set, patches = reg_patches(existing)
         with patches[0], patches[1], patches[2]:
             with patch.dict(os.environ, {"PATH": existing}):
                 pathreg._add_path_windows(r"C:\new\bin")
@@ -82,7 +82,7 @@ class TestAddPathWindows:
 class TestRemovePathWindows:
     def test_removes_from_registry(self):
         existing = WIN_SEP.join([r"C:\old\bin", r"C:\Windows\System32"])
-        reg_path, reg_set, patches = reg_patches(existing)
+        _, reg_set, patches = reg_patches(existing)
         with patches[0], patches[1], patches[2]:
             with patch.dict(os.environ, {"PATH": existing}):
                 pathreg._remove_path_windows(r"C:\old\bin")
@@ -91,7 +91,7 @@ class TestRemovePathWindows:
 
     def test_keeps_other_entries_in_registry(self):
         existing = WIN_SEP.join([r"C:\old\bin", r"C:\keep\this"])
-        reg_path, reg_set, patches = reg_patches(existing)
+        _, reg_set, patches = reg_patches(existing)
         with patches[0], patches[1], patches[2]:
             with patch.dict(os.environ, {"PATH": existing}):
                 pathreg._remove_path_windows(r"C:\old\bin")
@@ -100,7 +100,7 @@ class TestRemovePathWindows:
 
     def test_converts_forward_slashes(self):
         existing = WIN_SEP.join([r"C:\old\bin", r"C:\Windows\System32"])
-        reg_path, reg_set, patches = reg_patches(existing)
+        _, reg_set, patches = reg_patches(existing)
         with patches[0], patches[1], patches[2]:
             with patch.dict(os.environ, {"PATH": existing}):
                 pathreg._remove_path_windows("C:/old/bin")
@@ -109,13 +109,51 @@ class TestRemovePathWindows:
 
     def test_removes_entry_with_trailing_backslash_in_registry(self):
         existing = WIN_SEP.join([r"C:\old\bin\ ", r"C:\Windows\System32"])
-        reg_path, reg_set, patches = reg_patches(existing)
+        _, reg_set, patches = reg_patches(existing)
         with patches[0], patches[1], patches[2]:
             with patch.dict(os.environ, {"PATH": existing}):
                 pathreg._remove_path_windows(r"C:\old\bin")
         written = reg_set.call_args[0][0]
         remaining = [p.removesuffix("\\").strip() for p in written.split(WIN_SEP)]
         assert r"C:\old\bin" not in remaining
+
+
+class TestSetPathWindows:
+    def test_replaces_registry_with_given_dirs(self):
+        existing = r"C:\old\bin"
+        _, reg_set, patches = reg_patches(existing)
+        with patches[0], patches[1], patches[2]:
+            with patch.dict(os.environ, {"PATH": existing}):
+                pathreg._set_path_windows([r"C:\new\a", r"C:\new\b"])
+        written = reg_set.call_args[0][0]
+        assert written == WIN_SEP.join([r"C:\new\a", r"C:\new\b"])
+
+    def test_updates_environ_path(self):
+        existing = r"C:\old\bin"
+        _, _, patches = reg_patches(existing)
+        with patches[0], patches[1], patches[2]:
+            with patch.dict(os.environ, {}, clear=True):
+                os.environ["PATH"] = existing
+                pathreg._set_path_windows([r"C:\new\a"])
+                assert os.environ["PATH"] == r"C:\new\a"
+
+    def test_converts_forward_slashes(self):
+        existing = r"C:\old"
+        _, reg_set, patches = reg_patches(existing)
+        with patches[0], patches[1], patches[2]:
+            with patch.dict(os.environ, {"PATH": existing}):
+                pathreg._set_path_windows(["C:/new/a"])
+        written = reg_set.call_args[0][0]
+        assert written == r"C:\new\a"
+
+    def test_strips_trailing_backslash(self):
+        existing = r"C:\old"
+        _, reg_set, patches = reg_patches(existing)
+        with patches[0], patches[1], patches[2]:
+            with patch.dict(os.environ, {"PATH": existing}):
+                pathreg._set_path_windows([r"C:\new\a\ ".strip()])
+        written = reg_set.call_args[0][0]
+        assert written == r"C:\new\a"
 
 
 class TestWindowsModuleInit:
