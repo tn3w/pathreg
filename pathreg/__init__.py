@@ -135,6 +135,30 @@ def in_path(directory: str) -> bool:
     )
 
 
+def clean_path() -> list[Path]:
+    """Remove duplicate and non-existent directories from PATH in the current process.
+
+    Returns the cleaned list of Path objects.
+    """
+    sep = ";" if _WINDOWS else ":"
+    seen: set[str] = set()
+    cleaned: list[str] = []
+
+    for part in os.environ.get("PATH", "").split(sep):
+        if not part:
+            continue
+        resolved = str(Path(part).resolve())
+        if resolved in seen:
+            continue
+        if not Path(part).is_dir():
+            continue
+        seen.add(resolved)
+        cleaned.append(part)
+
+    os.environ["PATH"] = sep.join(cleaned)
+    return [Path(p) for p in cleaned]
+
+
 def find_executable(name: str) -> Path | None:
     """Return the first Path in PATH where *name* is an executable file, or None."""
     sep = ";" if _WINDOWS else ":"
@@ -165,11 +189,17 @@ def main():
         )
 
     sub.add_parser("list", help="List all PATH entries")
+    sub.add_parser("clean", help="Remove duplicates and non-existent dirs from PATH")
 
     args = parser.parse_args()
 
     if args.command == "list":
         for path in list_paths():
+            print(path)
+        return
+
+    if args.command == "clean":
+        for path in clean_path():
             print(path)
         return
 
