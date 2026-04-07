@@ -196,12 +196,14 @@ def move_path(directory: str, index: int) -> None:
     os.environ["PATH"] = sep.join(parts)
 
 
-def list_paths() -> list[Path]:
-    """Return the current PATH entries as a list of Path objects."""
-    raw = os.environ.get("PATH", "")
-    sep = ";" if _WINDOWS else ":"
+def list_paths(filter: Callable[[Path], bool] | None = None) -> list[Path]:
+    """Return the current PATH entries as a list of Path objects.
 
-    return [Path(p) for p in raw.split(sep) if p]
+    Pass a *filter* predicate to keep only matching entries.
+    """
+    sep = ";" if _WINDOWS else ":"
+    paths = [Path(p) for p in os.environ.get("PATH", "").split(sep) if p]
+    return [p for p in paths if filter(p)] if filter else paths
 
 
 def path_len() -> int:
@@ -262,7 +264,44 @@ def find_executable(name: str) -> Path | None:
     return None
 
 
-def main():
+def _resolve_filter(args, parser):
+    from pathreg import filters as f
+
+    if not args.filter:
+        return None
+
+    _numeric_filters = {"depth", "min_depth", "max_depth", "newer_than", "older_than"}
+    _arg_filters = _numeric_filters | {
+        "contains",
+        "matches",
+        "startswith",
+        "has_executable",
+    }
+    _simple_filters = {
+        "exists": f.exists,
+        "writable": f.writable,
+        "readable": f.readable,
+        "is_symlink": f.is_symlink,
+        "is_real": f.is_real,
+        "is_empty": f.is_empty,
+        "is_nonempty": f.is_nonempty,
+        "has_executables": f.has_executables,
+        "is_user": f.is_user,
+        "is_system": f.is_system,
+        "is_venv": f.is_venv,
+    }
+
+    if args.filter not in _arg_filters:
+        return _simple_filters[args.filter]
+
+    if not args.filter_arg:
+        parser.error(f"--filter {args.filter} requires --filter-arg")
+
+    arg = float(args.filter_arg) if args.filter in _numeric_filters else args.filter_arg
+    return getattr(f, args.filter)(arg)
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pathreg", description="Manage PATH entries.")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -292,16 +331,47 @@ def main():
     move_sub.add_argument("directory")
     move_sub.add_argument("index", type=int)
 
-    sub.add_parser("list", help="List all PATH entries")
+    list_sub = sub.add_parser("list", help="List all PATH entries")
+    list_sub.add_argument(
+        "--filter",
+        dest="filter",
+        choices=[
+            "exists",
+            "writable",
+            "readable",
+            "is_symlink",
+            "is_real",
+            "is_empty",
+            "is_nonempty",
+            "has_executables",
+            "is_user",
+            "is_system",
+            "is_venv",
+            "has_executable",
+            "depth",
+            "min_depth",
+            "max_depth",
+            "newer_than",
+            "older_than",
+            "contains",
+            "matches",
+            "startswith",
+        ],
+        help="Filter entries",
+    )
+    list_sub.add_argument("--filter-arg", dest="filter_arg", help="Argument for filter")
+
     sub.add_parser("count", help="Print the number of PATH entries")
     sub.add_parser("clean", help="Remove duplicates and non-existent dirs from PATH")
     set_sub = sub.add_parser("set", help="Replace PATH with given directories")
     set_sub.add_argument("directories", nargs="+", metavar="directory")
 
-    args = parser.parse_args()
+    return parser
 
+
+def _dispatch(args, parser) -> None:
     if args.command == "list":
-        for path in list_paths():
+        for path in list_paths(_resolve_filter(args, parser)):
             print(path)
         return
 
@@ -344,10 +414,13 @@ def main():
         print(f"Moved {args.directory!r} to index {args.index}")
         return
 
-    actions = {"remove": (remove_path, "Removed")}
-    action, verb = actions[args.command]
-    action(args.directory)
-    print(f"{verb} {args.directory!r}")
+    remove_path(args.directory)
+    print(f"Removed {args.directory!r}")
+
+
+def main():
+    parser = _build_parser()
+    _dispatch(parser.parse_args(), parser)
 
 
 if __name__ == "__main__":
