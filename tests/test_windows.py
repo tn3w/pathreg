@@ -36,13 +36,22 @@ class TestAddPathWindows:
                 pathreg._add_path_windows(r"C:\new\bin")
                 assert r"C:\new\bin" in os.environ["PATH"]
 
-    def test_calls_reg_set_with_new_entry_prepended(self):
+    def test_calls_reg_set_with_new_entry_appended(self):
         existing = r"C:\Windows\System32"
         _, reg_set, patches = reg_patches(existing)
         with patches[0], patches[1], patches[2]:
             with patch.dict(os.environ, {"PATH": existing}):
                 pathreg._add_path_windows(r"C:\new\bin")
         reg_set.assert_called_once()
+        written = reg_set.call_args[0][0]
+        assert written.endswith(r"C:\new\bin")
+
+    def test_explicit_index_inserts_at_position(self):
+        existing = WIN_SEP.join([r"C:\a", r"C:\b"])
+        _, reg_set, patches = reg_patches(existing)
+        with patches[0], patches[1], patches[2]:
+            with patch.dict(os.environ, {"PATH": existing}):
+                pathreg._add_path_windows(r"C:\new\bin", index=0)
         written = reg_set.call_args[0][0]
         assert written.startswith(r"C:\new\bin")
 

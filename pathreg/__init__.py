@@ -48,28 +48,57 @@ def _entry(directory: str) -> str:
     return f'PATH="{directory}:$PATH"\n'
 
 
-def _add_path_windows(directory: str) -> None:
-    """Prepend *directory* to the user PATH in the Windows registry. Idempotent."""
+def _add_path_windows(directory: str, index: int | None = None) -> None:
+    """Append *directory* to the user PATH in the Windows registry. Idempotent."""
     directory = directory.strip().replace("/", "\\").removesuffix("\\")
 
     current = _reg_path()
     parts = current.split(os.pathsep)
 
-    if directory not in parts and directory + "\\" not in parts:
-        _reg_set(directory + os.pathsep + current)
-        os.environ["PATH"] = directory + os.pathsep + os.environ.get("PATH", "")
+    if directory in parts or directory + "\\" in parts:
+        return
+
+    if index is None:
+        parts.append(directory)
+    else:
+        parts.insert(index, directory)
+    _reg_set(os.pathsep.join(parts))
+
+    env_parts = os.environ.get("PATH", "").split(os.pathsep)
+    if index is None:
+        env_parts.append(directory)
+    else:
+        env_parts.insert(index, directory)
+    os.environ["PATH"] = os.pathsep.join(env_parts)
 
 
-def _add_path_unix(directory: str) -> None:
-    """Append a PATH entry for *directory* to the shell profile file. Idempotent."""
+def _add_path_unix(directory: str, index: int | None = None) -> None:
+    """Insert a PATH entry for *directory* into the shell profile file. Idempotent."""
     directory = directory.strip().replace("\\", "/").removesuffix("/")
 
     profile = _profile(_shell())
     text = profile.read_text() if profile.exists() else ""
 
-    if _entry(directory) not in text:
-        profile.write_text(text + _entry(directory))
-        os.environ["PATH"] = directory + ":" + os.environ.get("PATH", "")
+    if _entry(directory) in text:
+        return
+
+    entries = [
+        m.group(0) for m in re.finditer(r'(?:export )?PATH="[^"]*:\$PATH"\n', text)
+    ]
+    if index is None:
+        entries.append(_entry(directory))
+    else:
+        entries.insert(index, _entry(directory))
+
+    clean = re.sub(r'(?:export )?PATH="[^"]*:\$PATH"\n', "", text)
+    profile.write_text(clean + "".join(entries))
+
+    env_parts = [p for p in os.environ.get("PATH", "").split(":") if p]
+    if index is None:
+        env_parts.append(directory)
+    else:
+        env_parts.insert(index, directory)
+    os.environ["PATH"] = ":".join(env_parts)
 
 
 def _remove_path_windows(directory: str) -> None:
@@ -125,8 +154,15 @@ def _set_path_unix(directories: list[str]) -> None:
     os.environ["PATH"] = ":".join(normalized)
 
 
-add_path: Callable[[str], None] = _add_path_windows if _WINDOWS else _add_path_unix
-"""Add *directory* to PATH persistently and in the current process. Idempotent."""
+add_path: Callable[..., None] = _add_path_windows if _WINDOWS else _add_path_unix
+"""Add *directory* to PATH at *index* (default None = append) persistently and in
+the current process. Idempotent."""
+
+
+def prepend_path(directory: str) -> None:
+    """Add *directory* to the front of PATH persistently and in the current process."""
+    add_path(directory, index=0)
+
 
 remove_path: Callable[[str], None] = (
     _remove_path_windows if _WINDOWS else _remove_path_unix
@@ -139,12 +175,39 @@ set_path: Callable[[list[str]], None] = (
 """Replace PATH with *directories* persistently and in the current process."""
 
 
+def move_path(directory: str, index: int) -> None:
+    """Move *directory* to *index* in PATH in the current process.
+
+    No-op if *directory* is not in PATH.
+    """
+    sep = ";" if _WINDOWS else ":"
+    suffix = "\\" if _WINDOWS else "/"
+    target = directory.strip().removesuffix(suffix)
+
+    parts = [p for p in os.environ.get("PATH", "").split(sep) if p]
+    normalized = [p.removesuffix(suffix) for p in parts]
+
+    if target not in normalized:
+        return
+
+    current_index = normalized.index(target)
+    entry = parts.pop(current_index)
+    parts.insert(index, entry)
+    os.environ["PATH"] = sep.join(parts)
+
+
 def list_paths() -> list[Path]:
     """Return the current PATH entries as a list of Path objects."""
     raw = os.environ.get("PATH", "")
     sep = ";" if _WINDOWS else ":"
 
     return [Path(p) for p in raw.split(sep) if p]
+
+
+def path_len() -> int:
+    """Return the number of entries in PATH."""
+    sep = ";" if _WINDOWS else ":"
+    return sum(1 for p in os.environ.get("PATH", "").split(sep) if p)
 
 
 def in_path(directory: str) -> bool:
@@ -204,7 +267,6 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
 
     for name, help_text in (
-        ("add", "Add a directory to PATH"),
         ("remove", "Remove a directory from PATH"),
         ("check", "Check if a directory is in PATH"),
         ("find", "Find the first executable by name in PATH"),
@@ -213,7 +275,25 @@ def main():
             "directory" if name != "find" else "name"
         )
 
+    sub.add_parser("prepend", help="Add a directory to the front of PATH").add_argument(
+        "directory"
+    )
+
+    add_sub = sub.add_parser("add", help="Append a directory to PATH")
+    add_sub.add_argument("directory")
+    add_sub.add_argument(
+        "--index",
+        type=int,
+        default=None,
+        help="Position to insert (default: append to end)",
+    )
+
+    move_sub = sub.add_parser("move", help="Move a PATH entry to a specific position")
+    move_sub.add_argument("directory")
+    move_sub.add_argument("index", type=int)
+
     sub.add_parser("list", help="List all PATH entries")
+    sub.add_parser("count", help="Print the number of PATH entries")
     sub.add_parser("clean", help="Remove duplicates and non-existent dirs from PATH")
     set_sub = sub.add_parser("set", help="Replace PATH with given directories")
     set_sub.add_argument("directories", nargs="+", metavar="directory")
@@ -223,6 +303,10 @@ def main():
     if args.command == "list":
         for path in list_paths():
             print(path)
+        return
+
+    if args.command == "count":
+        print(path_len())
         return
 
     if args.command == "clean":
@@ -244,7 +328,23 @@ def main():
         print(result if result else "not found")
         return
 
-    actions = {"add": (add_path, "Added"), "remove": (remove_path, "Removed")}
+    if args.command == "prepend":
+        prepend_path(args.directory)
+        print(f"Prepended {args.directory!r}")
+        return
+
+    if args.command == "add":
+        add_path(args.directory, args.index)
+        suffix = f" at index {args.index}" if args.index is not None else ""
+        print(f"Added {args.directory!r}{suffix}")
+        return
+
+    if args.command == "move":
+        move_path(args.directory, args.index)
+        print(f"Moved {args.directory!r} to index {args.index}")
+        return
+
+    actions = {"remove": (remove_path, "Removed")}
     action, verb = actions[args.command]
     action(args.directory)
     print(f"{verb} {args.directory!r}")

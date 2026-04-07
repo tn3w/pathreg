@@ -29,10 +29,10 @@ class TestAddPathUnix:
             _add_path_unix("/new/dir")
             assert "/new/dir" in os.environ["PATH"]
 
-    def test_new_dir_prepended_in_environ(self, sh_profile):
+    def test_new_dir_appended_in_environ(self, sh_profile):
         with patch.dict(os.environ, {"PATH": "/existing"}):
             _add_path_unix("/new/dir")
-            assert os.environ["PATH"].startswith("/new/dir:")
+            assert os.environ["PATH"].endswith(":/new/dir")
 
     def test_strips_trailing_slash(self, sh_profile):
         with patch.dict(os.environ, {"PATH": "/existing"}):

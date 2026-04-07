@@ -11,35 +11,44 @@ pip install pathreg
 ## CLI Usage
 
 ```sh
-pathreg add /some/directory
+pathreg add /some/directory             # append (default)
+pathreg add --index 0 /some/directory   # insert at position 0
+pathreg prepend /some/directory         # insert at front
 pathreg remove /some/directory
-pathreg set /a /b /c            # replace PATH with given directories
+pathreg move /some/directory 0          # move existing entry to position 0
+pathreg set /a /b /c                    # replace PATH with given directories
 pathreg list
-pathreg check /some/directory   # prints "yes" or "no"
-pathreg find python             # prints full path or "not found"
-pathreg clean                   # removes duplicates and non-existent entries
+pathreg count                           # prints number of PATH entries
+pathreg check /some/directory           # prints "yes" or "no"
+pathreg find python                     # prints full path or "not found"
+pathreg clean                           # removes duplicates and non-existent entries
 ```
 
 ## Python API
 
 ```python
-from pathreg import add_path, remove_path, list_paths, in_path, find_executable, clean_path
+from pathreg import add_path, prepend_path, remove_path, move_path, set_path, list_paths, path_len, in_path, find_executable, clean_path
 
-add_path("/some/directory")       # idempotent, skips if already present
-remove_path("/some/directory")    # no-op if not found
-set_path(["/a", "/b", "/c"])      # replace PATH entirely with given list
-list_paths()                      # returns list[Path] of current PATH entries
-in_path("/some/directory")        # returns True if directory is in PATH
-find_executable("python")         # returns Path to first match, or None
-clean_path()                      # removes duplicates and non-existent dirs, returns cleaned list[Path]
+add_path("/some/directory")          # append (default); idempotent
+add_path("/some/directory", index=0) # insert at position 0; idempotent
+prepend_path("/some/directory")      # insert at front; idempotent
+remove_path("/some/directory")       # no-op if not found
+move_path("/some/directory", 0)      # move existing entry to position 0; no-op if absent
+set_path(["/a", "/b", "/c"])         # replace PATH entirely
+list_paths()                         # returns list[Path] of current PATH entries
+path_len()                           # returns number of PATH entries (faster than len(list_paths()))
+in_path("/some/directory")           # returns True if directory is in PATH
+find_executable("python")            # returns Path to first match, or None
+clean_path()                         # removes duplicates and non-existent dirs, returns cleaned list[Path]
 ```
 
-`add_path` and `remove_path` modify the shell profile **and** the current process's `PATH` immediately.
+`add_path`, `remove_path`, `move_path`, and `set_path` modify the shell profile **and** the current process's `PATH` immediately (`move_path` only updates the current process).
 
 ## Behavior
 
 - Paths are normalized: trailing separators stripped, slashes converted per platform.
-- `add_path` is idempotent, does nothing if the entry already exists.
+- `add_path` is idempotent, does nothing if the entry already exists. The optional `index` parameter controls insertion position (default `None` = append to end); supports negative indices.
+- `move_path` moves an existing entry to the given index in the current process PATH only; no-op if absent.
 - `remove_path` is a no-op if the entry is absent or the profile file does not exist.
 - `list_paths` reflects the current process `PATH`; it does not read the profile file.
 - `in_path` normalizes trailing separators before comparing, matching `add_path` behaviour.
